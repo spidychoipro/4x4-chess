@@ -3,7 +3,7 @@ import {
   cloneState, legalMoves, makeMove, moveToSan, getGameStatus, positionKey,
   findKing, fileOf, rankOf, sq, squareName, opposite,
 } from './rules.js';
-import { pickMove } from './ai.js';
+import { BOTS, resolveBot, pickMove } from './ai.js';
 import { findForcedMate } from './solver.js';
 
 const STORAGE = {
@@ -40,7 +40,7 @@ function writeJSON(key, value) {
 const settings = {
   mode: 'puzzle',
   levelIndex: 0,
-  difficulty: 'normal',
+  botElo: 1000,
   humanColor: 'w',
   flipped: false,
   sound: true,
@@ -48,12 +48,17 @@ const settings = {
 };
 let progress = readJSON(STORAGE.progress, {});
 
+// 예전 설정 파일에 남아 있던 쉬움/보통/어려움 값을 레이팅으로 옮긴다.
+const legacyRating = { easy: 100, normal: 1000, hard: 2000 };
+if (!Number.isFinite(settings.botElo)) settings.botElo = legacyRating[settings.difficulty] ?? 1000;
+
 const $ = (id) => document.getElementById(id);
 const ui = {
   board: $('board'), promotion: $('promotion'), status: $('status'), statusNote: $('status-note'),
   levels: $('levels'), levelCounter: $('level-counter'), levelName: $('level-name'), levelMeta: $('level-meta'),
   puzzlePanel: $('puzzle-panel'), matchPanel: $('match-panel'), sideField: $('side-field'),
-  difficulty: $('difficulty'), side: $('side'), moves: $('moves'), moveCounter: $('move-counter'),
+  difficulty: $('difficulty'), botDesc: $('bot-desc'), matchNote: $('match-note'),
+  side: $('side'), moves: $('moves'), moveCounter: $('move-counter'),
   hintBtn: $('hint-btn'), soundBtn: $('sound-btn'), toast: $('toast'),
   playerTop: $('player-top'), playerBottom: $('player-bottom'),
   playerTopName: $('player-top-name'), playerBottomName: $('player-bottom-name'),
@@ -245,7 +250,9 @@ function renderPlayers() {
   const topColor = settings.flipped ? 'w' : 'b';
   const label = (color) => {
     if (game.mode === 'local') return COLOR_NAME[color];
-    return color === game.humanColor ? `${COLOR_NAME[color]} · 나` : `${COLOR_NAME[color]} · AI`;
+    if (color === game.humanColor) return `${COLOR_NAME[color]} · 나`;
+    const bot = resolveBot(settings.botElo);
+    return `${COLOR_NAME[color]} · AI ${bot.elo}`;
   };
   ui.playerTopName.textContent = label(topColor);
   ui.playerBottomName.textContent = label(opposite(topColor));
@@ -285,8 +292,11 @@ function render() {
     tab.setAttribute('aria-pressed', String(active));
   });
   ui.puzzlePanel.hidden = settings.mode !== 'puzzle';
-  ui.matchPanel.hidden = settings.mode === 'puzzle';
+  ui.matchPanel.hidden = settings.mode === 'local';
   ui.sideField.hidden = settings.mode !== 'ai';
+  ui.matchNote.textContent = settings.mode === 'puzzle'
+    ? '도전 코스의 방어 상대 강도도 여기서 바꿀 수 있어요.'
+    : '원하는 레이팅의 봇을 골라 붙으세요.';
   ui.hintBtn.hidden = settings.mode === 'local';
   ui.hintBtn.disabled = !!game.result || game.thinking ||
     game.humanColor === null || game.state.turn !== game.humanColor;
@@ -339,7 +349,7 @@ function scheduleAI() {
   render();
   setTimeout(() => {
     if (token !== aiToken || !game || game.result || !isAITurn()) return;
-    const choice = pickMove(game.state, settings.difficulty);
+    const choice = pickMove(game.state, settings.botElo);
     game.thinking = false;
     if (choice?.move) applyMove(choice.move);
   }, 320 + Math.random() * 220);
@@ -420,7 +430,7 @@ function hint() {
     const remaining = Math.max(1, puzzle.mateIn - game.playerMoves);
     move = findForcedMate(game.state, remaining, 'w')?.[0] ?? null;
   }
-  if (!move) move = pickMove(game.state, settings.difficulty)?.move ?? null;
+  if (!move) move = pickMove(game.state, settings.botElo)?.move ?? null;
   if (!move) return;
   game.hintsUsed += 1;
   toast(`추천 수: ${moveToSan(game.state, move)}`);
@@ -488,8 +498,10 @@ function bindEvents() {
   });
   ui.hintBtn.addEventListener('click', hint);
   ui.difficulty.addEventListener('change', () => {
-    settings.difficulty = ui.difficulty.value;
+    settings.botElo = Number(ui.difficulty.value);
+    ui.botDesc.textContent = resolveBot(settings.botElo).desc;
     persistSettings();
+    render();
   });
   ui.side.addEventListener('change', () => {
     settings.humanColor = ui.side.value;
@@ -534,7 +546,16 @@ function bindEvents() {
 
 function init() {
   settings.levelIndex = Math.max(0, Math.min(PUZZLES.length - 1, Number(settings.levelIndex) || 0));
-  ui.difficulty.value = settings.difficulty;
+  settings.botElo = resolveBot(settings.botElo).elo;
+  const botOptions = BOTS.map((bot) => {
+    const option = document.createElement('option');
+    option.value = String(bot.elo);
+    option.textContent = `${bot.elo} · ${bot.name}`;
+    return option;
+  });
+  ui.difficulty.replaceChildren(...botOptions);
+  ui.difficulty.value = String(settings.botElo);
+  ui.botDesc.textContent = resolveBot(settings.botElo).desc;
   ui.side.value = settings.humanColor;
   ui.soundBtn.classList.toggle('is-off', !settings.sound);
   ui.soundBtn.setAttribute('aria-label', settings.sound ? '소리 끄기' : '소리 켜기');

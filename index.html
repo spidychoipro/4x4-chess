@@ -87,15 +87,12 @@
         </section>
 
         <section class="panel" id="match-panel" hidden>
-          <div class="panel-heading"><h2>대국 설정</h2></div>
+          <div class="panel-heading"><h2>상대 설정</h2></div>
           <label class="field" for="difficulty">
-            <span>AI 난이도</span>
-            <select id="difficulty">
-              <option value="easy">쉬움</option>
-              <option value="normal" selected>보통</option>
-              <option value="hard">어려움</option>
-            </select>
+            <span>상대 레이팅</span>
+            <select id="difficulty"></select>
           </label>
+          <p class="panel-note" id="bot-desc"></p>
           <label class="field" id="side-field" for="side">
             <span>내 색</span>
             <select id="side">
@@ -103,7 +100,7 @@
               <option value="b">검정 (후수)</option>
             </select>
           </label>
-          <p class="panel-note">2인용은 같은 기기에서 번갈아 두세요.</p>
+          <p class="panel-note" id="match-note"></p>
         </section>
 
         <section class="panel action-panel">
