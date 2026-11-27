@@ -1,0 +1,12 @@
+{
+  "name": "4x4-chess",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A fair, ad-free 4x4 chess game with verified mate puzzles, an AI opponent and local two-player mode.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "puzzles": "node tools/find-puzzles.mjs"
+  },
+  "license": "MIT"
+}

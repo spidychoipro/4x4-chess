@@ -1,0 +1,20 @@
+{
+  "name": "4x4 체스 — 작지만 날카롭게",
+  "short_name": "4x4 체스",
+  "description": "강제 체크메이트가 검증된 퍼즐, AI 대국, 2인용을 광고 없이 즐기는 4x4 체스.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0f14",
+  "theme_color": "#5ee0b0",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

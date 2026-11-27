@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="description" content="광고 없이, 운빨 없이, 제대로 된 규칙으로 play하는 4x4 체스. 강제 체크메이트 퍼즐 10단계, AI 대국, 2인용.">
+  <meta property="og:title" content="4x4 체스 — 작지만 날카롭게">
+  <meta property="og:description" content="검증된 체크메이트 퍼즐과 제대로 된 체스 규칙. 광고 없이 바로 플레이.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+  <title>4x4 체스 — 작지만 날카롭게</title>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="4x4 체스 홈">
+        <span class="brand-mark" aria-hidden="true">♞</span>
+        <span class="brand-name">4x4 체스</span>
+      </a>
+      <nav class="tablist" aria-label="게임 모드">
+        <button class="tab is-active" type="button" data-mode="puzzle" aria-pressed="true">도전</button>
+        <button class="tab" type="button" data-mode="ai" aria-pressed="false">AI 대국</button>
+        <button class="tab" type="button" data-mode="local" aria-pressed="false">2인용</button>
+      </nav>
+      <button class="ghost-btn" id="rules-btn" type="button">규칙</button>
+    </header>
+
+    <section class="hero">
+      <div>
+        <h1>작은 판에서, 더 날카로운 수.</h1>
+        <p>무작위 배치로 운에 맡기지 마세요. 모든 퍼즐은 강제 체크메이트가 증명된 위치입니다.</p>
+      </div>
+      <div class="badges" aria-label="특징">
+        <span class="badge">광고 없음</span>
+        <span class="badge">앙파상 지원</span>
+        <span class="badge">오프라인 플레이</span>
+      </div>
+    </section>
+
+    <main class="layout">
+      <section class="panel board-panel" aria-label="체스판">
+        <div class="board-toolbar">
+          <div class="players">
+            <div class="player" id="player-top"><span class="player-dot black"></span><span id="player-top-name">검정</span></div>
+            <div class="player" id="player-bottom"><span class="player-dot white"></span><span id="player-bottom-name">흰색 · 나</span></div>
+          </div>
+          <div class="tool-actions">
+            <button class="icon-btn" id="undo-btn" type="button" title="되돌리기" aria-label="되돌리기">↶</button>
+            <button class="icon-btn" id="reset-btn" type="button" title="처음부터" aria-label="처음부터">⟲</button>
+            <button class="icon-btn" id="flip-btn" type="button" title="판 뒤집기" aria-label="판 뒤집기">⇅</button>
+            <button class="icon-btn" id="sound-btn" type="button" title="소리 끄기" aria-label="소리 끄기">♪</button>
+          </div>
+        </div>
+
+        <div class="board-wrap">
+          <div class="board" id="board" role="group" aria-label="4x4 체스판"></div>
+          <div class="promotion-picker" id="promotion" hidden role="group" aria-label="승격할 기물 선택">
+            <span class="promotion-label">승격</span>
+            <button type="button" data-piece="q" aria-label="퀸으로 승격">♕</button>
+            <button type="button" data-piece="r" aria-label="룩으로 승격">♖</button>
+            <button type="button" data-piece="b" aria-label="비숍으로 승격">♗</button>
+            <button type="button" data-piece="n" aria-label="나이트로 승격">♘</button>
+          </div>
+        </div>
+
+        <div class="board-footer">
+          <p class="status" id="status" role="status" aria-live="polite">흰색 차례</p>
+          <p class="status-note" id="status-note">말을 누른 뒤 이동할 칸을 누르세요.</p>
+        </div>
+      </section>
+
+      <aside class="side">
+        <section class="panel" id="puzzle-panel">
+          <div class="panel-heading">
+            <h2>도전 코스</h2>
+            <span class="counter" id="level-counter">1 / 10</span>
+          </div>
+          <p class="panel-note">각 단계의 정답은 한 수로 시작합니다. 반드시 이깁니다.</p>
+          <div class="levels" id="levels" aria-label="단계 선택"></div>
+          <div class="level-detail">
+            <strong id="level-name">첫 수</strong>
+            <span id="level-meta">1수 안에 체크메이트</span>
+          </div>
+        </section>
+
+        <section class="panel" id="match-panel" hidden>
+          <div class="panel-heading"><h2>대국 설정</h2></div>
+          <label class="field" for="difficulty">
+            <span>AI 난이도</span>
+            <select id="difficulty">
+              <option value="easy">쉬움</option>
+              <option value="normal" selected>보통</option>
+              <option value="hard">어려움</option>
+            </select>
+          </label>
+          <label class="field" id="side-field" for="side">
+            <span>내 색</span>
+            <select id="side">
+              <option value="w" selected>흰색 (선수)</option>
+              <option value="b">검정 (후수)</option>
+            </select>
+          </label>
+          <p class="panel-note">2인용은 같은 기기에서 번갈아 두세요.</p>
+        </section>
+
+        <section class="panel action-panel">
+          <button class="primary-btn" id="hint-btn" type="button">힌트 보기 <span>· 별 1개 감소</span></button>
+          <button class="secondary-btn" id="new-btn" type="button">새 게임</button>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading"><h2>기보</h2><span class="counter" id="move-counter">0수</span></div>
+          <ol class="moves" id="moves"><li class="moves-empty">아직 두지 않았어요.</li></ol>
+        </section>
+
+        <section class="panel tips-panel">
+          <h2>알아두면 좋은 것</h2>
+          <ul>
+            <li>폰은 처음에 두 칸 전진할 수 있고, 그 직후에는 <strong>앙파상</strong>으로 잡을 수 있어요.</li>
+            <li>마지막 줄에 닿은 폰은 퀸·룩·비숍·나이트 중 하나로 <strong>승격</strong>해요.</li>
+            <li>왕이 안전하지 않으면 그 수는 두지 못해요. 체크메이트와 스테일메이트는 달라요.</li>
+          </ul>
+        </section>
+      </aside>
+    </main>
+
+    <footer>
+      <span>4x4 체스 · 광고·추적·로그인 없음</span>
+      <a href="https://github.com/spidychoipro/4x4-chess">소스 코드</a>
+    </footer>
+  </div>
+
+  <dialog id="rules-dialog">
+    <div class="dialog-head">
+      <h2>규칙</h2>
+      <button class="icon-btn" type="button" data-close="rules-dialog" aria-label="닫기">✕</button>
+    </div>
+    <p>4x4 판에서 하는 체스입니다. 기물의 움직임은 일반 체스와 같습니다.</p>
+    <ul class="rules-list">
+      <li><strong>왕</strong> 인접한 한 칸. <strong>퀸</strong> 직선·대각선. <strong>룩</strong> 직선. <strong>비숍</strong> 대각선. <strong>나이트</strong> L자. <strong>폰</strong> 앞으로 한 칸(처음엔 두 칸), 대각선으로 잡기.</li>
+      <li><strong>앙파상</strong> 두 칸 전진 직후, 옆에 있는 폰으로 지나친 칸을 잡을 수 있습니다.</li>
+      <li><strong>승격</strong> 폰이 마지막 줄에 닿으면 원하는 기물로 바뀝니다. 두 칸 전진으로 승격할 때도 마찬가지입니다.</li>
+      <li><strong>캐슬링</strong>은 판이 너무 작아 사용하지 않습니다.</li>
+      <li>왕이 잡히면 <strong>체크메이트</strong>로 끝납니다. 둘 곳이 없지만 체크는 아니면 <strong>스테일메이트</strong> 무승부입니다. 기물 부족, 50수, 같은 위치 3회도 무승부입니다.</li>
+    </ul>
+    <p class="dialog-foot">도전 코스의 모든 위치는 프로그램이 강제 체크메이트를 검증한 배치입니다. 운으로 이기는 단계는 없습니다.</p>
+    <button class="primary-btn" type="button" data-close="rules-dialog">알겠어요</button>
+  </dialog>
+
+  <dialog id="result-dialog">
+    <div class="dialog-head">
+      <h2 id="result-title">체크메이트!</h2>
+      <button class="icon-btn" type="button" data-close="result-dialog" aria-label="닫기">✕</button>
+    </div>
+    <p id="result-desc"></p>
+    <div class="stars" id="result-stars" aria-label="획득 별"></div>
+    <div class="dialog-actions">
+      <button class="secondary-btn" id="result-close" type="button">닫기</button>
+      <button class="primary-btn" id="result-primary" type="button">다시 하기</button>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
