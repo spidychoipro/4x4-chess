@@ -5,6 +5,7 @@ import {
   findKing, fileOf, rankOf, sq, squareName, opposite,
 } from './rules.js';
 import { BOTS, resolveBot, pickMove } from './ai.js';
+import { DICE_FACES, decideFirstMove, rollDie } from './dice.js';
 import { findForcedMate } from './solver.js';
 
 const STORAGE = {
@@ -63,6 +64,8 @@ const ui = {
   classicPanel: $('classic-panel'), classicLevels: $('classic-levels'), classicInfo: $('classic-info'),
   classicCounter: $('classic-counter'), classicOpponent: $('classic-opponent'),
   clock: $('clock'), promotionCancel: $('promotion-cancel'),
+  diceOverlay: $('dice-overlay'), diceTitle: $('dice-title'), diceNote: $('dice-note'),
+  diceButton: $('dice-btn'), dieFirst: $('die-first'), dieSecond: $('die-second'),
   puzzlePanel: $('puzzle-panel'), matchPanel: $('match-panel'), sideField: $('side-field'),
   difficulty: $('difficulty'), botDesc: $('bot-desc'), matchNote: $('match-note'),
   side: $('side'), moves: $('moves'), moveCounter: $('move-counter'),
@@ -81,6 +84,8 @@ let resultAction = () => {};
 let toastTimer = 0;
 let audioContext = null;
 let clockTimer = 0;
+let diceTimer = 0;
+let diceRolling = false;
 
 function persistSettings() { writeJSON(STORAGE.settings, settings); }
 
@@ -131,6 +136,119 @@ function isAITurn() {
   return !!game?.aiColor && game.state.turn === game.aiColor;
 }
 
+function usesDice() {
+  return settings.mode === 'classic' || settings.mode === 'local';
+}
+
+function viewFlipped() {
+  if (game?.humanColor === 'b') return !settings.flipped;
+  return settings.flipped;
+}
+
+function diceParticipants() {
+  if (settings.mode === 'classic') {
+    return { first: '귀하', second: '상대방', firstColor: 'w', secondColor: 'b' };
+  }
+  return { first: '흰색', second: '검정', firstColor: 'w', secondColor: 'b' };
+}
+
+function diceResultText(winner) {
+  if (game.mode === 'classic') {
+    return winner === 'first'
+      ? '귀하의 숫자가 더 크기 때문에, 귀하가 첫 번째로 이동합니다.'
+      : '상대방의 숫자가 더 크기 때문에, 상대방이 첫 번째로 이동합니다.';
+  }
+  const name = winner === 'first' ? '흰색' : '검정';
+  return `${name}의 숫자가 더 크기 때문에, ${name}이 첫 번째로 이동합니다.`;
+}
+
+function diceTieText() {
+  if (game.mode === 'classic') return '귀하와 상대방의 숫자가 같기 때문에, 다시 시도하십시오.';
+  return '흰색과 검정의 숫자가 같기 때문에, 다시 시도하십시오.';
+}
+
+function renderDice() {
+  if (!game?.dice) return;
+  ui.dieFirst.textContent = DICE_FACES[game.dice[0] - 1];
+  ui.dieSecond.textContent = DICE_FACES[game.dice[1] - 1];
+  ui.dieFirst.setAttribute('aria-label', `첫 번째 주사위 ${game.dice[0]}`);
+  ui.dieSecond.setAttribute('aria-label', `두 번째 주사위 ${game.dice[1]}`);
+  ui.dieFirst.classList.toggle('is-rolling', diceRolling);
+  ui.dieSecond.classList.toggle('is-rolling', diceRolling);
+}
+
+function stopDiceAnimation() {
+  clearInterval(diceTimer);
+  diceTimer = 0;
+  diceRolling = false;
+}
+
+function beginAfterDice() {
+  ui.diceOverlay.hidden = true;
+  game.phase = 'playing';
+  render();
+  focusSquare(displayOrder()[0]);
+  if (isAITurn()) scheduleAI();
+  startClock();
+}
+
+function handleDiceButton() {
+  if (!game || game.phase !== 'dice') return;
+
+  if (diceRolling) {
+    stopDiceAnimation();
+    beep(520, 0.08, 'square', 0.035);
+    const winner = decideFirstMove(...game.dice);
+    if (winner === 'tie') {
+      game.diceResult = 'tie';
+      ui.diceNote.textContent = diceTieText();
+      ui.diceButton.textContent = '다시 굴리기';
+    } else {
+      const { firstColor, secondColor } = diceParticipants();
+      game.diceResult = winner;
+      game.firstColor = winner === 'first' ? firstColor : secondColor;
+      if (game.mode === 'classic') {
+        game.humanColor = game.firstColor;
+        game.aiColor = opposite(game.humanColor);
+      }
+      game.state.turn = game.firstColor;
+      game.positions[0] = cloneState(game.state);
+      game.keys[0] = positionKey(game.state);
+      ui.diceNote.textContent = `${diceResultText(winner)} 화면을 터치하여 게임을 시작하세요.`;
+      ui.diceButton.textContent = '게임 시작';
+    }
+    render();
+    return;
+  }
+
+  if (game.diceResult === 'tie') {
+    startDiceSelection();
+  } else if (game.diceResult) {
+    beginAfterDice();
+  }
+}
+
+function startDiceSelection() {
+  stopDiceAnimation();
+  game.phase = 'dice';
+  game.diceResult = null;
+  game.firstColor = null;
+  game.dice = [rollDie(), rollDie()];
+  ui.diceOverlay.hidden = false;
+  ui.diceTitle.textContent = '주도권을 쥘 플레이어를 결정합니다.';
+  ui.diceNote.textContent = '플레이어는 화면을 터치하여 주사위를 멈추고 큰 숫자를 얻은 플레이어가 첫 번째로 이동합니다.';
+  ui.diceButton.textContent = '주사위 멈추기';
+  diceRolling = true;
+  diceTimer = setInterval(() => {
+    if (!game || game.phase !== 'dice' || !diceRolling) return;
+    game.dice = [rollDie(), rollDie()];
+    renderDice();
+  }, 110);
+  renderDice();
+  render();
+  ui.diceButton.focus();
+}
+
 function stopClock() {
   clearInterval(clockTimer);
   clockTimer = 0;
@@ -145,7 +263,7 @@ function renderClock() {
   const minutes = Math.floor(left / 60);
   const seconds = String(left % 60).padStart(2, '0');
   ui.clock.hidden = false;
-  ui.clock.textContent = `${minutes}:${seconds}`;
+  ui.clock.textContent = `${minutes}분 ${seconds}초`;
   ui.clock.classList.toggle('is-low', left <= 10);
   ui.clock.setAttribute('aria-label', `남은 시간 ${minutes}분 ${seconds}초`);
 }
@@ -154,7 +272,8 @@ function startClock() {
   stopClock();
   if (!game?.timeLimit) return;
   clockTimer = setInterval(() => {
-    if (!game || game.result || game.thinking || game.state.turn !== game.humanColor) return;
+    if (!game || game.phase !== 'playing' || game.result || game.thinking ||
+        game.state.turn !== game.humanColor) return;
     game.timeLeft = Math.max(0, game.timeLeft - 1);
     renderClock();
     if (game.timeLeft === 0) {
@@ -171,6 +290,7 @@ function startClock() {
 function setupGame() {
   aiToken += 1;
   stopClock();
+  stopDiceAnimation();
   let state;
   let aiColor = null;
   let info = null;
@@ -203,6 +323,10 @@ function setupGame() {
     legal: [],
     result: null,
     thinking: false,
+    phase: 'playing',
+    dice: null,
+    diceResult: null,
+    firstColor: null,
     hintsUsed: 0,
     playerMoves: 0,
     lastMove: null,
@@ -212,6 +336,13 @@ function setupGame() {
   pendingPromotion = null;
   ui.promotion.hidden = true;
   if (ui.resultDialog.open) ui.resultDialog.close();
+
+  if (usesDice()) {
+    startDiceSelection();
+    return;
+  }
+
+  ui.diceOverlay.hidden = true;
   render();
   if (isAITurn()) scheduleAI();
   startClock();
@@ -220,7 +351,7 @@ function setupGame() {
 function displayOrder() {
   const order = [];
   for (let displayRank = 0; displayRank < 4; displayRank += 1) {
-    const rank = settings.flipped ? displayRank : 3 - displayRank;
+    const rank = viewFlipped() ? displayRank : 3 - displayRank;
     for (let file = 0; file < 4; file += 1) order.push(sq(file, rank));
   }
   return order;
@@ -285,6 +416,7 @@ function renderBoard() {
     fragment.appendChild(button);
   }
   ui.board.replaceChildren(fragment);
+  ui.board.classList.toggle('is-locked', game.phase !== 'playing');
 }
 
 function renderLevels() {
@@ -341,6 +473,12 @@ function renderClassicLevels() {
 }
 
 function renderStatus() {
+  if (game.phase === 'dice') {
+    ui.status.textContent = '주사위로 선공을 정하는 중';
+    ui.statusNote.textContent = ui.diceNote.textContent;
+    return;
+  }
+
   const status = game.result ?? getGameStatus(game.state, game.keys);
   if (game.thinking) {
     ui.status.textContent = '상대가 생각 중…';
@@ -359,7 +497,8 @@ function renderStatus() {
 }
 
 function renderPlayers() {
-  const topColor = settings.flipped ? 'w' : 'b';
+  const topColor = viewFlipped() ? 'w' : 'b';
+  const active = !game.result && game.phase === 'playing';
   const label = (color) => {
     if (game.mode === 'local' || isClassicLocal()) return COLOR_NAME[color];
     if (color === game.humanColor) return `${COLOR_NAME[color]} · 나`;
@@ -367,8 +506,8 @@ function renderPlayers() {
   };
   ui.playerTopName.textContent = label(topColor);
   ui.playerBottomName.textContent = label(opposite(topColor));
-  ui.playerTop.classList.toggle('is-turn', !game.result && game.state.turn === topColor);
-  ui.playerBottom.classList.toggle('is-turn', !game.result && game.state.turn === opposite(topColor));
+  ui.playerTop.classList.toggle('is-turn', active && game.state.turn === topColor);
+  ui.playerBottom.classList.toggle('is-turn', active && game.state.turn === opposite(topColor));
 }
 
 function renderMoves() {
@@ -412,8 +551,9 @@ function render() {
   ui.classicOpponent.value = settings.classicOpponent;
   ui.hintBtn.hidden = settings.mode === 'local' || isClassicLocal();
   ui.hintBtn.querySelector('span').hidden = settings.mode !== 'puzzle';
-  ui.hintBtn.disabled = !!game.result || game.thinking ||
+  ui.hintBtn.disabled = game.phase !== 'playing' || !!game.result || game.thinking ||
     game.humanColor === null || game.state.turn !== game.humanColor;
+  if (game.phase === 'dice') renderDice();
 
   const puzzle = currentPuzzle();
   ui.levelCounter.textContent = `${settings.levelIndex + 1} / ${PUZZLES.length}`;
@@ -464,7 +604,7 @@ function scheduleAI() {
   game.thinking = true;
   render();
   setTimeout(() => {
-    if (token !== aiToken || !game || game.result || !isAITurn()) return;
+    if (token !== aiToken || !game || game.phase !== 'playing' || game.result || !isAITurn()) return;
     const choice = pickMove(game.state, currentBotElo());
     game.thinking = false;
     if (choice?.move) applyMove(choice.move);
@@ -480,8 +620,11 @@ function showResult(status) {
   if (status.reason === 'checkmate') {
     const winner = COLOR_NAME[status.winner];
     if (game.mode === 'local' || isClassicLocal()) {
-      title = `${winner} 승리!`;
-      description = `${winner}이(가) 체크메이트를 만들었어요.`;
+      title = '게임 끝.';
+      description = `${winner}이(가) 이겼습니다.`;
+    } else if (game.mode === 'classic') {
+      title = '게임 끝.';
+      description = status.winner === game.humanColor ? '당신이 이겼습니다.' : '상대가 이겼습니다.';
     } else if (status.winner === game.humanColor) {
       title = '체크메이트!';
       description = game.mode === 'puzzle'
@@ -509,7 +652,7 @@ function showResult(status) {
     resultAction = hasNext
       ? () => { settings.levelIndex += 1; persistSettings(); setupGame(); }
       : () => setupGame();
-  } else if (game.mode === 'classic' && status.winner === 'w' && !isClassicLocal()) {
+  } else if (game.mode === 'classic' && status.winner === game.humanColor && !isClassicLocal()) {
     const next = Math.min(CLASSIC_LEVELS, settings.classicLevel + 1);
     markText = '✓ 클리어';
     if (next > classicUnlocked()) {
@@ -532,7 +675,7 @@ function showResult(status) {
 }
 
 function undo() {
-  if (!game || game.log.length === 0) return;
+  if (!game || game.phase !== 'playing' || game.log.length === 0) return;
   if (game.result?.reason === 'timeout') { toast('시간이 끝난 판은 되돌릴 수 없어요.'); return; }
   aiToken += 1;
   stopClock();
@@ -558,7 +701,8 @@ function undo() {
 
 function hint() {
   if (game.mode === 'local' || isClassicLocal()) { toast('2인용에서는 힌트를 쓸 수 없어요.'); return; }
-  if (!game || game.result || game.thinking || game.state.turn !== game.humanColor) return;
+  if (!game || game.phase !== 'playing' || game.result || game.thinking ||
+      game.state.turn !== game.humanColor) return;
   let move = null;
   if (game.mode === 'puzzle') {
     const puzzle = currentPuzzle();
@@ -573,7 +717,7 @@ function hint() {
 }
 
 function selectSquare(square) {
-  if (!game || game.result || game.thinking) return;
+  if (!game || game.phase !== 'playing' || game.result || game.thinking) return;
   if (game.humanColor !== null && game.state.turn !== game.humanColor) return;
 
   const target = game.legal.find((move) => move.to === square);
@@ -617,6 +761,10 @@ function bindEvents() {
     button.addEventListener('click', () => $(button.dataset.close).close());
   });
   $('rules-btn').addEventListener('click', () => ui.rulesDialog.showModal());
+  ui.diceButton.addEventListener('click', handleDiceButton);
+  ui.diceOverlay.addEventListener('click', (event) => {
+    if (event.target === ui.diceOverlay) handleDiceButton();
+  });
   $('undo-btn').addEventListener('click', undo);
   $('reset-btn').addEventListener('click', setupGame);
   $('new-btn').addEventListener('click', setupGame);

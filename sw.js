@@ -1,4 +1,4 @@
-const CACHE = '4x4-chess-v3';
+const CACHE = '4x4-chess-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   './manifest.webmanifest',
   './src/main.js',
   './src/classic.js',
+  './src/dice.js',
   './src/rules.js',
   './src/ai.js',
   './src/solver.js',
