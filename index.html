@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0f14">
-  <meta name="description" content="광고 없이, 운빨 없이, 제대로 된 규칙으로 play하는 4x4 체스. 강제 체크메이트 퍼즐 10단계, AI 대국, 2인용.">
-  <meta property="og:title" content="4x4 체스 — 작지만 날카롭게">
-  <meta property="og:description" content="검증된 체크메이트 퍼즐과 제대로 된 체스 규칙. 광고 없이 바로 플레이.">
+  <meta name="description" content="4x4 판에 말 8개를 놓고 하는 체스. 원작처럼 매 판 랜덤 배치, 시간제한 단계, 2인용. 광고 없이 앙파상까지 제대로.">
+  <meta property="og:title" content="4x4 체스">
+  <meta property="og:description" content="8개 말로 1분 안에 끝내는 4x4 체스. 랜덤 배치, 봇 레이팅 8단계, 검증된 퍼즐, 2인용.">
   <meta property="og:type" content="website">
   <link rel="icon" type="image/svg+xml" href="./icon.svg">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./styles.css">
-  <title>4x4 체스 — 작지만 날카롭게</title>
+  <title>4x4 체스</title>
 </head>
 <body>
   <div class="app">
@@ -21,7 +21,8 @@
         <span class="brand-name">4x4 체스</span>
       </a>
       <nav class="tablist" aria-label="게임 모드">
-        <button class="tab is-active" type="button" data-mode="puzzle" aria-pressed="true">도전</button>
+        <button class="tab is-active" type="button" data-mode="classic" aria-pressed="true">클래식</button>
+        <button class="tab" type="button" data-mode="puzzle" aria-pressed="false">도전</button>
         <button class="tab" type="button" data-mode="ai" aria-pressed="false">AI 대국</button>
         <button class="tab" type="button" data-mode="local" aria-pressed="false">2인용</button>
       </nav>
@@ -30,13 +31,12 @@
 
     <section class="hero">
       <div>
-        <h1>작은 판에서, 더 날카로운 수.</h1>
-        <p>무작위 배치로 운에 맡기지 마세요. 모든 퍼즐은 강제 체크메이트가 증명된 위치입니다.</p>
+        <h1>4x4 판, 말 8개, 1분.</h1>
+        <p>원작처럼 매 판 말이 새로 놓이고, 일부 단계엔 제한시간이 있습니다. 2인용도 되고, 광고 대신 앙파상이 됩니다.</p>
       </div>
       <div class="badges" aria-label="특징">
         <span class="badge">광고 없음</span>
         <span class="badge">앙파상 지원</span>
-        <span class="badge">오프라인 플레이</span>
       </div>
     </section>
 
@@ -47,6 +47,7 @@
             <div class="player" id="player-top"><span class="player-dot black"></span><span id="player-top-name">검정</span></div>
             <div class="player" id="player-bottom"><span class="player-dot white"></span><span id="player-bottom-name">흰색 · 나</span></div>
           </div>
+          <span class="clock" id="clock" hidden aria-label="남은 시간"></span>
           <div class="tool-actions">
             <button class="icon-btn" id="undo-btn" type="button" title="되돌리기" aria-label="되돌리기">↶</button>
             <button class="icon-btn" id="reset-btn" type="button" title="처음부터" aria-label="처음부터">⟲</button>
@@ -63,6 +64,7 @@
             <button type="button" data-piece="r" aria-label="룩으로 승격">♖</button>
             <button type="button" data-piece="b" aria-label="비숍으로 승격">♗</button>
             <button type="button" data-piece="n" aria-label="나이트로 승격">♘</button>
+            <button type="button" id="promotion-cancel" aria-label="승격 취소">취소</button>
           </div>
         </div>
 
@@ -73,12 +75,25 @@
       </section>
 
       <aside class="side">
+        <section class="panel" id="classic-panel">
+          <div class="panel-heading"><h2>클래식</h2><span class="counter" id="classic-counter">1 / 20</span></div>
+          <p class="panel-note" id="classic-info"></p>
+          <div class="levels" id="classic-levels" aria-label="클래식 단계 선택"></div>
+          <label class="field" for="classic-opponent">
+            <span>상대</span>
+            <select id="classic-opponent">
+              <option value="bot">봇과 대국</option>
+              <option value="local">같은 기기에서 2인용</option>
+            </select>
+          </label>
+        </section>
+
         <section class="panel" id="puzzle-panel">
           <div class="panel-heading">
             <h2>도전 코스</h2>
             <span class="counter" id="level-counter">1 / 10</span>
           </div>
-          <p class="panel-note">각 단계의 정답은 한 수로 시작합니다. 반드시 이깁니다.</p>
+          <p class="panel-note">이기는 수가 검증된 판입니다. 첫 수는 한 가지만 맞습니다.</p>
           <div class="levels" id="levels" aria-label="단계 선택"></div>
           <div class="level-detail">
             <strong id="level-name">첫 수</strong>
@@ -114,11 +129,12 @@
         </section>
 
         <section class="panel tips-panel">
-          <h2>알아두면 좋은 것</h2>
+          <h2>자주 헷갈리는 규칙</h2>
           <ul>
             <li>폰은 처음에 두 칸 전진할 수 있고, 그 직후에는 <strong>앙파상</strong>으로 잡을 수 있어요.</li>
             <li>마지막 줄에 닿은 폰은 퀸·룩·비숍·나이트 중 하나로 <strong>승격</strong>해요.</li>
             <li>왕이 안전하지 않으면 그 수는 두지 못해요. 체크메이트와 스테일메이트는 달라요.</li>
+            <li>클래식 단계 중 일부는 제한시간이 있어요. 시간이 다 되면 그 판은 집니다.</li>
           </ul>
         </section>
       </aside>
@@ -143,8 +159,8 @@
       <li><strong>캐슬링</strong>은 판이 너무 작아 사용하지 않습니다.</li>
       <li>왕이 잡히면 <strong>체크메이트</strong>로 끝납니다. 둘 곳이 없지만 체크는 아니면 <strong>스테일메이트</strong> 무승부입니다. 기물 부족, 50수, 같은 위치 3회도 무승부입니다.</li>
     </ul>
-    <p class="dialog-foot">도전 코스의 모든 위치는 프로그램이 강제 체크메이트를 검증한 배치입니다. 운으로 이기는 단계는 없습니다.</p>
-    <button class="primary-btn" type="button" data-close="rules-dialog">알겠어요</button>
+    <p class="dialog-foot">도전 코스 10판은 이기는 수가 프로그램으로 검증돼 있습니다.</p>
+    <button class="primary-btn" type="button" data-close="rules-dialog">닫기</button>
   </dialog>
 
   <dialog id="result-dialog">

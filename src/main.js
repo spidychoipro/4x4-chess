@@ -1,4 +1,5 @@
 import { PUZZLES, puzzleState, matchState } from './puzzles.js';
+import { CLASSIC_LEVELS, classicInfo, classicState } from './classic.js';
 import {
   cloneState, legalMoves, makeMove, moveToSan, getGameStatus, positionKey,
   findKing, fileOf, rankOf, sq, squareName, opposite,
@@ -38,8 +39,10 @@ function writeJSON(key, value) {
 }
 
 const settings = {
-  mode: 'puzzle',
+  mode: 'classic',
   levelIndex: 0,
+  classicLevel: 1,
+  classicOpponent: 'bot',
   botElo: 1000,
   humanColor: 'w',
   flipped: false,
@@ -51,11 +54,15 @@ let progress = readJSON(STORAGE.progress, {});
 // 예전 설정 파일에 남아 있던 쉬움/보통/어려움 값을 레이팅으로 옮긴다.
 const legacyRating = { easy: 100, normal: 1000, hard: 2000 };
 if (!Number.isFinite(settings.botElo)) settings.botElo = legacyRating[settings.difficulty] ?? 1000;
+if (settings.classicOpponent !== 'local') settings.classicOpponent = 'bot';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
   board: $('board'), promotion: $('promotion'), status: $('status'), statusNote: $('status-note'),
   levels: $('levels'), levelCounter: $('level-counter'), levelName: $('level-name'), levelMeta: $('level-meta'),
+  classicPanel: $('classic-panel'), classicLevels: $('classic-levels'), classicInfo: $('classic-info'),
+  classicCounter: $('classic-counter'), classicOpponent: $('classic-opponent'),
+  clock: $('clock'), promotionCancel: $('promotion-cancel'),
   puzzlePanel: $('puzzle-panel'), matchPanel: $('match-panel'), sideField: $('side-field'),
   difficulty: $('difficulty'), botDesc: $('bot-desc'), matchNote: $('match-note'),
   side: $('side'), moves: $('moves'), moveCounter: $('move-counter'),
@@ -73,6 +80,7 @@ let pendingPromotion = null;
 let resultAction = () => {};
 let toastTimer = 0;
 let audioContext = null;
+let clockTimer = 0;
 
 function persistSettings() { writeJSON(STORAGE.settings, settings); }
 
@@ -80,7 +88,10 @@ function toast(message) {
   ui.toast.textContent = message;
   ui.toast.classList.add('is-visible');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => ui.toast.classList.remove('is-visible'), 2600);
+  toastTimer = setTimeout(() => {
+    ui.toast.classList.remove('is-visible');
+    ui.toast.textContent = '';
+  }, 2600);
 }
 
 function beep(frequency, duration = 0.08, type = 'triangle', volume = 0.045) {
@@ -101,27 +112,88 @@ function beep(frequency, duration = 0.08, type = 'triangle', volume = 0.045) {
 
 function currentPuzzle() { return PUZZLES[settings.levelIndex]; }
 
+function currentBotElo() {
+  if (settings.mode === 'classic' && settings.classicOpponent === 'bot') {
+    return classicInfo(settings.classicLevel).botElo;
+  }
+  return settings.botElo;
+}
+
+function classicUnlocked() {
+  return Math.max(1, Math.min(CLASSIC_LEVELS, Number(progress.classic) || 1));
+}
+
+function isClassicLocal() {
+  return settings.mode === 'classic' && settings.classicOpponent === 'local';
+}
+
 function isAITurn() {
   return !!game?.aiColor && game.state.turn === game.aiColor;
 }
 
+function stopClock() {
+  clearInterval(clockTimer);
+  clockTimer = 0;
+}
+
+function renderClock() {
+  if (!game?.timeLimit) {
+    ui.clock.hidden = true;
+    return;
+  }
+  const left = Math.max(0, game.timeLeft);
+  const minutes = Math.floor(left / 60);
+  const seconds = String(left % 60).padStart(2, '0');
+  ui.clock.hidden = false;
+  ui.clock.textContent = `${minutes}:${seconds}`;
+  ui.clock.classList.toggle('is-low', left <= 10);
+  ui.clock.setAttribute('aria-label', `남은 시간 ${minutes}분 ${seconds}초`);
+}
+
+function startClock() {
+  stopClock();
+  if (!game?.timeLimit) return;
+  clockTimer = setInterval(() => {
+    if (!game || game.result || game.thinking || game.state.turn !== game.humanColor) return;
+    game.timeLeft = Math.max(0, game.timeLeft - 1);
+    renderClock();
+    if (game.timeLeft === 0) {
+      stopClock();
+      game.result = { over: true, reason: 'timeout', winner: opposite(game.humanColor) };
+      beep(220, 0.3, 'sine', 0.06);
+      showResult(game.result);
+      render();
+    }
+  }, 1000);
+  renderClock();
+}
+
 function setupGame() {
   aiToken += 1;
+  stopClock();
   let state;
   let aiColor = null;
-  if (settings.mode === 'puzzle') {
+  let info = null;
+
+  if (settings.mode === 'classic') {
+    info = classicInfo(settings.classicLevel);
+    state = classicState(settings.classicLevel);
+    aiColor = isClassicLocal() ? null : 'b';
+  } else if (settings.mode === 'puzzle') {
     state = puzzleState(currentPuzzle());
     aiColor = 'b';
   } else {
     state = matchState();
     aiColor = settings.mode === 'ai' ? opposite(settings.humanColor) : null;
   }
-  const humanColor = settings.mode === 'local' ? null
-    : settings.mode === 'puzzle' ? 'w' : settings.humanColor;
+
+  const humanColor = settings.mode === 'local' || isClassicLocal() ? null
+    : settings.mode === 'puzzle' || settings.mode === 'classic' ? 'w' : settings.humanColor;
 
   game = {
     mode: settings.mode,
     state,
+    info,
     aiColor,
     humanColor,
     positions: [cloneState(state)],
@@ -134,12 +206,15 @@ function setupGame() {
     hintsUsed: 0,
     playerMoves: 0,
     lastMove: null,
+    timeLimit: info?.timeLimit ?? null,
+    timeLeft: info?.timeLimit ?? 0,
   };
   pendingPromotion = null;
   ui.promotion.hidden = true;
   if (ui.resultDialog.open) ui.resultDialog.close();
   render();
   if (isAITurn()) scheduleAI();
+  startClock();
 }
 
 function displayOrder() {
@@ -149,6 +224,13 @@ function displayOrder() {
     for (let file = 0; file < 4; file += 1) order.push(sq(file, rank));
   }
   return order;
+}
+
+function focusSquare(square) {
+  ui.board.querySelectorAll('[data-square]').forEach((button) => {
+    button.tabIndex = Number(button.dataset.square) === square ? 0 : -1;
+  });
+  ui.board.querySelector(`[data-square="${square}"]`)?.focus();
 }
 
 function squareLabel(square, piece) {
@@ -199,6 +281,7 @@ function renderBoard() {
 
     button.setAttribute('aria-label', squareLabel(square, piece));
     button.setAttribute('aria-pressed', game.selected === square ? 'true' : 'false');
+    button.tabIndex = square === (game.selected ?? order[0]) ? 0 : -1;
     fragment.appendChild(button);
   }
   ui.board.replaceChildren(fragment);
@@ -229,19 +312,48 @@ function renderLevels() {
   ui.levels.replaceChildren(fragment);
 }
 
+function renderClassicLevels() {
+  const unlocked = classicUnlocked();
+  const info = classicInfo(settings.classicLevel);
+  const fragment = document.createDocumentFragment();
+
+  ui.classicCounter.textContent = `${settings.classicLevel} / ${CLASSIC_LEVELS}`;
+  ui.classicInfo.textContent = `${info.pieces.map((type) => PIECE_NAME[type]).join('·')} ${info.patternName} 배치`
+    + `${info.timeLimit ? ` · ${info.timeLimit}초` : ''} · 상대 ${currentBotElo()}점`;
+
+  for (let level = 1; level <= CLASSIC_LEVELS; level += 1) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'level-btn';
+    if (level === settings.classicLevel && settings.mode === 'classic') button.classList.add('is-current');
+    button.disabled = level > unlocked;
+    button.dataset.classicLevel = String(level);
+    button.setAttribute('aria-label', `클래식 ${level}단계${button.disabled ? ', 잠김' : ''}`);
+    const number = document.createElement('span');
+    number.textContent = String(level);
+    const marks = document.createElement('span');
+    marks.className = 'level-stars';
+    marks.textContent = button.disabled ? '🔒' : level < unlocked ? '✓' : '지금';
+    button.append(number, marks);
+    fragment.appendChild(button);
+  }
+  ui.classicLevels.replaceChildren(fragment);
+}
+
 function renderStatus() {
   const status = game.result ?? getGameStatus(game.state, game.keys);
   if (game.thinking) {
     ui.status.textContent = '상대가 생각 중…';
   } else if (status.over) {
     if (status.reason === 'checkmate') ui.status.textContent = `${COLOR_NAME[status.winner]} 체크메이트!`;
+    else if (status.reason === 'timeout') ui.status.textContent = '시간이 다 됐어요.';
     else ui.status.textContent = `무승부 · ${DRAW_REASON[status.reason] ?? ''}`;
   } else {
     ui.status.textContent = `${COLOR_NAME[game.state.turn]} 차례${status.check ? ' · 체크!' : ''}`;
   }
   ui.statusNote.textContent = game.result
-    ? '다시 하기로 한 번 더 도전해 보세요.'
-    : game.thinking ? '잠시만 기다려 주세요.'
+    ? game.mode === 'classic' ? '다시 하기를 누르면 새 배치로 시작해요.' : '다시 하기를 누르면 처음부터 시작해요.'
+    : game.thinking ? '상대가 수를 고르고 있어요.'
       : game.humanColor !== null && game.state.turn !== game.humanColor ? '상대의 수를 기다리는 중이에요.'
         : '말을 누른 뒤 이동할 칸을 누르세요.';
 }
@@ -249,10 +361,9 @@ function renderStatus() {
 function renderPlayers() {
   const topColor = settings.flipped ? 'w' : 'b';
   const label = (color) => {
-    if (game.mode === 'local') return COLOR_NAME[color];
+    if (game.mode === 'local' || isClassicLocal()) return COLOR_NAME[color];
     if (color === game.humanColor) return `${COLOR_NAME[color]} · 나`;
-    const bot = resolveBot(settings.botElo);
-    return `${COLOR_NAME[color]} · AI ${bot.elo}`;
+    return `${COLOR_NAME[color]} · AI ${currentBotElo()}`;
   };
   ui.playerTopName.textContent = label(topColor);
   ui.playerBottomName.textContent = label(opposite(topColor));
@@ -291,13 +402,16 @@ function render() {
     tab.classList.toggle('is-active', active);
     tab.setAttribute('aria-pressed', String(active));
   });
+  ui.classicPanel.hidden = settings.mode !== 'classic';
   ui.puzzlePanel.hidden = settings.mode !== 'puzzle';
-  ui.matchPanel.hidden = settings.mode === 'local';
+  ui.matchPanel.hidden = settings.mode === 'local' || settings.mode === 'classic';
   ui.sideField.hidden = settings.mode !== 'ai';
   ui.matchNote.textContent = settings.mode === 'puzzle'
     ? '도전 코스의 방어 상대 강도도 여기서 바꿀 수 있어요.'
     : '원하는 레이팅의 봇을 골라 붙으세요.';
-  ui.hintBtn.hidden = settings.mode === 'local';
+  ui.classicOpponent.value = settings.classicOpponent;
+  ui.hintBtn.hidden = settings.mode === 'local' || isClassicLocal();
+  ui.hintBtn.querySelector('span').hidden = settings.mode !== 'puzzle';
   ui.hintBtn.disabled = !!game.result || game.thinking ||
     game.humanColor === null || game.state.turn !== game.humanColor;
 
@@ -307,10 +421,12 @@ function render() {
   ui.levelMeta.textContent = `${puzzle.mateIn}수 안에 체크메이트`;
 
   renderBoard();
+  renderClassicLevels();
   renderLevels();
   renderStatus();
   renderPlayers();
   renderMoves();
+  renderClock();
 }
 
 function applyMove(move) {
@@ -349,7 +465,7 @@ function scheduleAI() {
   render();
   setTimeout(() => {
     if (token !== aiToken || !game || game.result || !isAITurn()) return;
-    const choice = pickMove(game.state, settings.botElo);
+    const choice = pickMove(game.state, currentBotElo());
     game.thinking = false;
     if (choice?.move) applyMove(choice.move);
   }, 320 + Math.random() * 220);
@@ -358,50 +474,68 @@ function scheduleAI() {
 function showResult(status) {
   let title;
   let description;
-  let stars = 0;
+  let markText = '';
+  let hasNext = false;
 
   if (status.reason === 'checkmate') {
     const winner = COLOR_NAME[status.winner];
-    if (game.mode === 'local') {
+    if (game.mode === 'local' || isClassicLocal()) {
       title = `${winner} 승리!`;
       description = `${winner}이(가) 체크메이트를 만들었어요.`;
     } else if (status.winner === game.humanColor) {
       title = '체크메이트!';
-      const puzzle = currentPuzzle();
       description = game.mode === 'puzzle'
-        ? `${puzzle.mateIn}수 안에 상대 왕을 잡았어요.`
+        ? `${currentPuzzle().mateIn}수 안에 상대 왕을 움직일 수 없게 만들었어요.`
         : `${winner}이(가) 이겼어요.`;
     } else {
       title = '체크메이트';
       description = `${winner}이(가) 이겼어요. 다시 도전해 보세요.`;
     }
+  } else if (status.reason === 'timeout') {
+    title = '시간 초과';
+    description = '제한시간 안에 끝내지 못했어요. 다시 도전해 보세요.';
   } else {
     title = '무승부';
     description = DRAW_REASON[status.reason] ?? '게임이 끝났어요.';
   }
 
   if (game.mode === 'puzzle' && status.winner === 'w') {
-    const puzzle = currentPuzzle();
-    const extra = Math.max(0, game.playerMoves - puzzle.mateIn);
-    stars = Math.max(1, 3 - (extra > 0 ? 1 : 0) - (game.hintsUsed > 0 ? 1 : 0));
-    progress[puzzle.id] = Math.max(progress[puzzle.id] ?? 0, stars);
+    const extra = Math.max(0, game.playerMoves - currentPuzzle().mateIn);
+    const stars = Math.max(1, 3 - (extra > 0 ? 1 : 0) - (game.hintsUsed > 0 ? 1 : 0));
+    markText = `${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}`;
+    progress[currentPuzzle().id] = Math.max(progress[currentPuzzle().id] ?? 0, stars);
     writeJSON(STORAGE.progress, progress);
+    hasNext = settings.levelIndex < PUZZLES.length - 1;
+    resultAction = hasNext
+      ? () => { settings.levelIndex += 1; persistSettings(); setupGame(); }
+      : () => setupGame();
+  } else if (game.mode === 'classic' && status.winner === 'w' && !isClassicLocal()) {
+    const next = Math.min(CLASSIC_LEVELS, settings.classicLevel + 1);
+    markText = '✓ 클리어';
+    if (next > classicUnlocked()) {
+      progress.classic = next;
+      writeJSON(STORAGE.progress, progress);
+    }
+    hasNext = settings.classicLevel < CLASSIC_LEVELS;
+    resultAction = hasNext
+      ? () => { settings.classicLevel += 1; persistSettings(); setupGame(); }
+      : () => setupGame();
+  } else {
+    resultAction = () => setupGame();
   }
 
   ui.resultTitle.textContent = title;
   ui.resultDesc.textContent = description;
-  ui.resultStars.textContent = stars ? `${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}` : '';
-  const hasNext = game.mode === 'puzzle' && status.winner === 'w' && settings.levelIndex < PUZZLES.length - 1;
-  ui.resultPrimary.textContent = hasNext ? '다음 단계' : '다시 하기';
-  resultAction = hasNext
-    ? () => { settings.levelIndex += 1; persistSettings(); setupGame(); }
-    : () => setupGame();
+  ui.resultStars.textContent = markText;
+  ui.resultPrimary.textContent = hasNext ? '다음 단계' : game.mode === 'classic' ? '새 판' : '다시 하기';
   if (!ui.resultDialog.open) ui.resultDialog.showModal();
 }
 
 function undo() {
   if (!game || game.log.length === 0) return;
+  if (game.result?.reason === 'timeout') { toast('시간이 끝난 판은 되돌릴 수 없어요.'); return; }
   aiToken += 1;
+  stopClock();
   const steps = game.mode === 'local' ? 1 : game.aiColor ? 2 : 1;
   for (let i = 0; i < steps && game.log.length; i += 1) {
     game.log.pop();
@@ -419,10 +553,11 @@ function undo() {
   ui.promotion.hidden = true;
   if (ui.resultDialog.open) ui.resultDialog.close();
   render();
+  startClock();
 }
 
 function hint() {
-  if (game.mode === 'local') { toast('2인용에서는 힌트를 쓸 수 없어요.'); return; }
+  if (game.mode === 'local' || isClassicLocal()) { toast('2인용에서는 힌트를 쓸 수 없어요.'); return; }
   if (!game || game.result || game.thinking || game.state.turn !== game.humanColor) return;
   let move = null;
   if (game.mode === 'puzzle') {
@@ -430,7 +565,7 @@ function hint() {
     const remaining = Math.max(1, puzzle.mateIn - game.playerMoves);
     move = findForcedMate(game.state, remaining, 'w')?.[0] ?? null;
   }
-  if (!move) move = pickMove(game.state, settings.botElo)?.move ?? null;
+  if (!move) move = pickMove(game.state, currentBotElo())?.move ?? null;
   if (!move) return;
   game.hintsUsed += 1;
   toast(`추천 수: ${moveToSan(game.state, move)}`);
@@ -467,6 +602,7 @@ function selectSquare(square) {
 
 function switchMode(mode) {
   if (settings.mode === mode) return;
+  if (game?.log.length && !window.confirm('지금 판을 버리고 모드를 바꿀까요?')) return;
   settings.mode = mode;
   if (mode === 'ai') settings.humanColor = ui.side.value === 'b' ? 'b' : 'w';
   persistSettings();
@@ -515,6 +651,18 @@ function bindEvents() {
     persistSettings();
     setupGame();
   });
+  ui.classicLevels.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-classic-level]');
+    if (!button || button.disabled) return;
+    settings.classicLevel = Number(button.dataset.classicLevel);
+    persistSettings();
+    setupGame();
+  });
+  ui.classicOpponent.addEventListener('change', () => {
+    settings.classicOpponent = ui.classicOpponent.value === 'local' ? 'local' : 'bot';
+    persistSettings();
+    setupGame();
+  });
 
   ui.board.addEventListener('click', (event) => {
     const button = event.target.closest('[data-square]');
@@ -530,7 +678,7 @@ function bindEvents() {
     const next = order[index + delta];
     if (next !== undefined) {
       event.preventDefault();
-      ui.board.querySelector(`[data-square="${next}"]`)?.focus();
+      focusSquare(next);
     }
   });
 
@@ -540,12 +688,23 @@ function bindEvents() {
       if (move) applyMove(move);
     });
   });
+  ui.promotionCancel.addEventListener('click', () => {
+    pendingPromotion = null;
+    ui.promotion.hidden = true;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || ui.promotion.hidden) return;
+    pendingPromotion = null;
+    ui.promotion.hidden = true;
+  });
   ui.resultPrimary.addEventListener('click', () => resultAction());
   $('result-close').addEventListener('click', () => ui.resultDialog.close());
 }
 
 function init() {
+  if (!['classic', 'puzzle', 'ai', 'local'].includes(settings.mode)) settings.mode = 'classic';
   settings.levelIndex = Math.max(0, Math.min(PUZZLES.length - 1, Number(settings.levelIndex) || 0));
+  settings.classicLevel = Math.max(1, Math.min(CLASSIC_LEVELS, Number(settings.classicLevel) || 1));
   settings.botElo = resolveBot(settings.botElo).elo;
   const botOptions = BOTS.map((bot) => {
     const option = document.createElement('option');
@@ -556,6 +715,7 @@ function init() {
   ui.difficulty.replaceChildren(...botOptions);
   ui.difficulty.value = String(settings.botElo);
   ui.botDesc.textContent = resolveBot(settings.botElo).desc;
+  ui.classicOpponent.value = settings.classicOpponent;
   ui.side.value = settings.humanColor;
   ui.soundBtn.classList.toggle('is-off', !settings.sound);
   ui.soundBtn.setAttribute('aria-label', settings.sound ? '소리 끄기' : '소리 켜기');

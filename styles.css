@@ -86,6 +86,11 @@ button:focus-visible, select:focus-visible, a:focus-visible {
 .player-dot { width: 10px; height: 10px; border-radius: 50%; }
 .player-dot.white { background: #fff6e5; box-shadow: 0 0 0 1px #8b867a; }
 .player-dot.black { background: #1b222d; box-shadow: 0 0 0 1px #6a7686; }
+.clock {
+  font-variant-numeric: tabular-nums; font-weight: 800; font-size: 14px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 7px 12px; color: var(--text);
+}
+.clock.is-low { color: var(--danger); border-color: var(--danger); }
 .tool-actions { display: flex; gap: 6px; }
 .icon-btn {
   width: 38px; height: 38px; display: grid; place-items: center; flex: none;
@@ -143,6 +148,11 @@ button:focus-visible, select:focus-visible, a:focus-visible {
   background: var(--panel-2); color: var(--accent); font-size: 29px; cursor: pointer;
 }
 .promotion-picker button:hover { background: var(--accent); color: var(--accent-ink); }
+.promotion-picker #promotion-cancel {
+  width: auto; height: 46px; padding: 0 11px; font-size: 13px;
+  color: var(--muted); font-weight: 700;
+}
+.promotion-picker #promotion-cancel:hover { background: var(--panel-2); color: var(--text); border-color: var(--muted); }
 
 .board-footer { text-align: center; margin-top: 15px; }
 .status { margin: 0; font-weight: 800; font-size: 17px; }
